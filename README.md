@@ -8,7 +8,7 @@ Stop loss, trailing and pyramiding code is functional. There is also a long only
 
 Let me know what you think
 
-![backtesting](https://imgur.com/a/3uyYz5R)
+![backtesting](https://image.ibb.co/jyzmfL/Screen-Shot-2018-11-20-at-12-27-33.png)
 
 # How to add
 1. Copy the script and go to tradingview.com and open any chart
