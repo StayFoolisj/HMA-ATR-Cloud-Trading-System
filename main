@@ -1,0 +1,293 @@
+//@version=3
+strategy(title='HMA + ATR CLOUD SYSTEM', overlay = true, initial_capital=10000, currency=currency.NONE, default_qty_value=100, default_qty_type=strategy.percent_of_equity, pyramiding=1000, commission_value=0.0)
+
+//--ATR MAIN SETTINGS--//
+cloud = input(25, defval = 25, minval = 5, maxval = 50, title = "cloud, % of ATR")
+src = close
+Factor = input(title = "Super Trend", defval = 3, minval = 1,maxval = 100)
+ATR = input(title="ATR", defval=7, minval=1,maxval = 100)
+//centr = input(true, defval = true, title = "need center of ATR?") - wtf is this
+//border = input(false, defval = false, title = "need border?") - Wtf is this
+//SECTION END
+
+//ATR COMPONENTS
+Up=hl2-(Factor*atr(ATR))
+Dn=hl2+(Factor*atr(ATR))
+TUp=na
+TUp:=close[1]>TUp[1]? max(Up,TUp[1]) : Up
+TDown=na
+TDown:=close[1]<TDown[1]? min(Dn,TDown[1]) : Dn
+Trend = na
+Trend := close > TDown[1] ? 1: close< TUp[1]? 0: nz(Trend[1],1)
+Tsl1 = Trend==1? TUp: TDown
+Tsl2 = Trend==1? TDown: TUp
+//END
+
+//UPCLOUD = (Tsl1 + Tsl1 + Tsl1 + Tsl2) / 4
+limit = (Tsl1 - Tsl2) / 100 * cloud
+upcloud = Tsl1 - limit
+dncloud = Tsl2 + limit
+//SECTION END
+
+//--RSI COMPONENTS--//
+
+//Fast RSI
+fastup = rma(max(change(src), 0), 2)
+fastdown = rma(-min(change(src), 0), 2)
+fastrsi = fastdown == 0 ? 100 : fastup == 0 ? 0 : 100 - (100 / (1 + fastup / fastdown))
+
+//Slow RSI
+slowup = rma(max(change(src), 0), 14)
+slowdown = rma(-min(change(src), 0), 14)
+slowrsi = slowdown == 0 ? 100 : slowup == 0 ? 0 : 100 - (100 / (1 + slowup / slowdown))
+
+//Double RSI
+drsi = (fastrsi + slowrsi) / 2
+//SECTION END
+
+//--HMA COMPONENTS--//
+func_hma(style, length)=>
+
+// === HA Components ===
+    return = wma((2 * wma(style, length / 2)) - wma(style, length), round(sqrt(length)))
+
+maLen = input(120, minval=1, title="MA periods")
+hma_fast = func_hma(close, 55)
+hma_slow = func_hma(close, 80)
+length = input(14, minval=1, title='MA Length')
+MA = sma(close, maLen)
+
+plot(MA, title="MA(100)", style=stepline, linewidth=1,transp=30,color=orange)
+plot(series=hma_fast, title='hmaFAST', style=line, linewidth=1,transp=30,color=purple)
+plot(series=hma_slow, title='hmaSLOW', style=line, linewidth=1,transp=30,color=green)
+// === /END
+
+//--CLOUD COMPONENTS--//
+linecolor = Trend == 1 ? green : red
+bgcolor(linecolor, transp=70)
+//SECTION END
+
+//--CONDITIONS--//
+positive_trend = Trend == 1
+negative_trend = Trend == 0
+price_above_hmas = close > hma_slow and close > hma_fast
+price_below_hmas = close < hma_slow and close < hma_fast
+price_above_MA = close > MA
+price_below_MA = close < MA
+price_above_hmafast = close > hma_fast
+price_below_hmafast = close < hma_fast
+price_above_hmaslow = close > hma_slow
+price_below_hmaslow = close < hma_slow
+hma_cross_negative = hma_slow > hma_fast
+hma_cross_positive = hma_slow < hma_fast
+//SECTION END
+
+// === Conditions ===
+////////////////////////////////////////////////////////////////////////////
+
+long_entry = positive_trend and price_above_hmas
+short_entry = negative_trend and price_below_hmas and price_below_MA
+
+////////////////////////////////////////////////////////////////////////////
+
+//Replace Only If Valid Exit Conditions
+long_exit = price_below_hmafast   //Close Long Condition Here (Optional)
+short_exit = price_above_hmafast   //Close Short Condition Here (Optional)
+
+///////////////////////////////////////////////////////////////////////////
+// === /END
+
+// === Inverse Trading Positions ===
+inv = input(false, "Inverse Trading")
+// === /END
+
+// === Long Pyramiding Control ===
+longo = 0
+longo := nz(longo[1])
+longc = 0
+longc := nz(longc[1])
+if (inv==false ? long_entry : short_entry)
+    longo := longo + 1
+    longc := 0
+if (inv==false ? long_exit : short_exit)
+    longc := longc + 1
+    longo := 0
+// === /END
+
+// === Short Pyramiding Control ===
+shorto = 0
+shorto := nz(shorto[1])
+shortc = 0
+shortc := nz(shortc[1])
+if (inv==false ? short_entry : long_entry)
+    shorto := shorto + 1
+    shortc := 0
+if (inv==false ? short_exit : long_exit)
+    shortc := shortc + 1
+    shorto := 0
+// === /END
+
+// === Pyramiding Settings ===
+pyr = input(1, title="Pyramiding Control")
+longCondition = (inv==false ? long_entry : short_entry) and longo <= pyr ? 1:0
+longX = (inv==false ? long_exit : short_exit) and longc <= pyr ? 1:0
+shortCondition = (inv==false ? short_entry : long_entry) and shorto <=pyr ? 1:0
+shortX = (inv==false ? short_exit : long_exit) and shortc <=pyr ? 1:0
+// === /END
+
+// === Market Type ===
+isMarket = input(title="Market Type", defval="Percentage", options=["Percentage", "Points"])
+leverage = input(1, "Leverage")
+isPoints = input(title="How Many Points/Pips?", defval=4, minval=2, maxval=8)
+isQty = isPoints == 2 ? 100 : isPoints == 3 ? 1000 : isPoints == 4 ? 10000 : isPoints == 5 ? 100000 : isPoints == 6 ? 1000000 : isPoints == 7 ? 10000000 : isPoints == 8 ? 100000000 : 10
+isType = isMarket == "Percentage" ? 1 : 0
+qty = isType ? 100 : isQty
+// === /END
+
+// === Get Last Position Price ===
+last_open_longCondition = na
+last_open_shortCondition = na
+last_open_longCondition := longCondition ? close : nz(last_open_longCondition[1])
+last_open_shortCondition := shortCondition ? close : nz(last_open_shortCondition[1])
+// === /END
+
+// === Check For Long/Short ===
+last_longCondition = na
+last_shortCondition = na
+last_longCondition := longCondition ? time : nz(last_longCondition[1])
+last_shortCondition := shortCondition ? time : nz(last_shortCondition[1])
+in_longCondition = last_longCondition > last_shortCondition
+in_shortCondition = last_shortCondition > last_longCondition
+// === /END
+
+// === Stop Loss ===
+isSL = input(false, "Stop Loss")
+sl = input(0, "Stop Loss", type=float) / qty
+long_call_sl = isType ? last_open_longCondition * (1 - sl/leverage) : last_open_longCondition - sl
+short_call_sl = isType ? last_open_shortCondition * (1 + sl/leverage) : last_open_shortCondition + sl
+long_sl = isSL and low <= long_call_sl and longCondition == 0
+short_sl = isSL and high >= short_call_sl and shortCondition == 0
+slColor = isSL and (in_longCondition or in_shortCondition) ? red : white
+plot(isSL and in_longCondition ? long_call_sl : na, "Long SL", slColor, style=3, linewidth=2)
+plot(isSL and in_shortCondition ? short_call_sl : na, "Short SL", slColor, style=3, linewidth=2)
+// === /END
+
+// === Take profit ===
+isTP = input(false, "Take Profit")
+tp = input(0, "Take Profit", type=float) / qty
+long_call_tp = isType ? last_open_longCondition * (1 + tp/leverage) : last_open_longCondition + tp
+short_call_tp = isType ? last_open_shortCondition * (1 - tp/leverage) : last_open_shortCondition - tp
+long_tp = isTP and high >= long_call_tp and longCondition == 0
+short_tp = isTP and low <= short_call_tp and shortCondition == 0
+tpColor = isTP and (in_longCondition or in_shortCondition) ? purple : white
+plot(isTP and in_longCondition ? long_call_tp : na, "Long TP", tpColor, style=3, linewidth=2)
+plot(isTP and in_shortCondition ? short_call_tp : na, "Short TP", tpColor, style=3, linewidth=2)
+// === /END
+
+// === Trailing Stop ===
+last_high = na
+last_low = na
+last_high_short = na
+last_low_short = na
+last_high := not in_longCondition ? na : in_longCondition and (na(last_high[1]) or high > nz(last_high[1])) ? high : nz(last_high[1])
+last_high_short := not in_shortCondition ? na : in_shortCondition and (na(last_high[1]) or high > nz(last_high[1])) ? high : nz(last_high[1])
+last_low := not in_shortCondition ? na : in_shortCondition and (na(last_low[1]) or low < nz(last_low[1])) ? low : nz(last_low[1])
+last_low_short := not in_longCondition ? na : in_longCondition and (na(last_low[1]) or low < nz(last_low[1])) ? low : nz(last_low[1])
+
+isTS = input(false, "Trailing Stop")
+tsi = input(0, "Activate Trailing Stop Price", type=float) / qty
+ts = input(0, "Trailing Stop", type=float) / qty
+long_call_ts = isType ? last_high * (1 - ts/leverage) : last_high - ts
+short_call_ts = isType ? last_low * (1 + ts/leverage) : last_low + ts
+
+long_call_tsi = isType ? last_open_longCondition * (1 + tsi/leverage) : last_open_longCondition + tsi
+short_call_tsi = isType ? last_open_shortCondition * (1 - tsi/leverage) : last_open_shortCondition - tsi
+
+long_ts = isTS and not na(last_high) and low <= long_call_ts and longCondition == 0 and high >= long_call_tsi
+short_ts = isTS and not na(last_low) and high >= short_call_ts and shortCondition == 0 and low <= short_call_tsi
+
+tsColor = isTS and (in_longCondition or in_shortCondition) ? blue : white
+tsiColor = isTS and (in_longCondition or in_shortCondition) ? white : blue
+plot(isTS and in_longCondition ? long_call_tsi : na, "Long Trailing", tsiColor, style=3, linewidth=2)
+plot(isTS and in_shortCondition ? short_call_tsi : na, "Short Trailing", tsiColor, style=3, linewidth=2)
+plot(isTS and in_longCondition ? long_call_ts : na, "Long Trailing", tsColor, style=2, linewidth=2)
+plot(isTS and in_shortCondition ? short_call_ts : na, "Short Trailing", tsColor, style=2, linewidth=2)
+// === /END
+
+// === Create a single close for all the different closing conditions
+closelong = long_tp or long_sl or long_ts or longX ? 1 : 0
+closeshort = short_tp or short_sl or short_ts or shortX ? 1 : 0
+
+// Get the time of the last close
+last_long_close = na
+last_short_close = na
+last_long_close := closelong ? time : nz(last_long_close[1])
+last_short_close := closeshort ? time : nz(last_short_close[1])
+
+// Check for a close since your last open
+if closelong and last_long_close[1] > last_longCondition
+    closelong := 0
+if closeshort and last_short_close[1] > last_shortCondition
+    closeshort := 0
+// === /END
+
+/////////////////////////===STUDY=CODE===///////////////////////////////////
+// === Signal Shapes ===
+plotshape(longCondition, title='OPEN LONG', style=shape.arrowup, size=size.large, color=#02CB80, location= location.belowbar)
+plotshape(shortCondition, title='OPEN SHORT', style=shape.arrowdown, size=size.large, color=#DC143C)
+plotshape(closelong, title='CLOSE LONG', style=shape.xcross, location=location.belowbar, color=gray, text="\n\n\n\nEXIT\nLONG", offset=0,transp=0)
+plotshape(closeshort, title='CLOSE SHORT', style=shape.xcross, location=location.abovebar, color=gray, text="EXIT\nSHORT\n\n\n\n", offset=0,transp=0)
+// === /END
+
+// === Alarm Alerts ===
+alertcondition(longCondition, title='OPEN LONG', message='OPEN LONG')
+alertcondition(closelong, title='CLOSE LONG', message='CLOSE LONG')
+alertcondition(shortCondition, title='OPEN SHORT', message='OPEN SHORT')
+alertcondition(closeshort, title='CLOSE SHORT', message='CLOSE SHORT')
+// === /END
+
+// === Backtesting Dates ===
+testPeriodSwitch = input(true, "Custom Backtesting Dates")
+testStartYear = input(2017, "Backtest Start Year")
+testStartMonth = input(1, "Backtest Start Month")
+testStartDay = input(1, "Backtest Start Day")
+testPeriodStart = timestamp(testStartYear,testStartMonth,testStartDay,0,0)
+testStopYear = input(2025, "Backtest Stop Year")
+testStopMonth = input(12, "Backtest Stop Month")
+testStopDay = input(31, "Backtest Stop Day")
+testPeriodStop = timestamp(testStopYear,testStopMonth,testStopDay,0,0)
+testPeriod() =>
+    time >= testPeriodStart and time <= testPeriodStop ? true : false
+isPeriod = testPeriodSwitch == true ? testPeriod() : true
+// === /END
+
+// === Long/Short Switch ===
+allowlong = input(true, "Open Long Positions")
+allowshort = input(true, "Open Short Positions")
+isAllow = allowlong==true and allowshort==true ? 0 : allowlong==true ? 1 : allowshort == true ? -1 : na
+// === /END
+
+// === Strategy ===
+if isPeriod and isAllow==0
+    if (longCondition)
+        strategy.entry("Long",strategy.long)
+    if (closelong) and not shortCondition
+        strategy.close("Long")
+    if (shortCondition)
+        strategy.entry("Short",strategy.short)
+    if (closeshort) and not longCondition
+        strategy.close("Short")
+
+if isPeriod and isAllow==1
+    if (longCondition)
+        strategy.entry("Long",strategy.long)
+    if (closelong)
+        strategy.close("Long")
+
+if isPeriod and isAllow==-1
+    if (shortCondition)
+        strategy.entry("Short",strategy.short)
+    if (closeshort)
+        strategy.close("Short")
+// === /END
+
